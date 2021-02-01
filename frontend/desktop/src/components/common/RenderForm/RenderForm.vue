@@ -58,6 +58,11 @@
             prop: 'formData',
             event: 'change'
         },
+        provide () {
+            return {
+                getFormData: () => this.formData
+            }
+        },
         props: {
             scheme: {
                 type: Array,
@@ -190,6 +195,7 @@
                         case 'member_selector':
                         case 'section':
                         case 'code_editor':
+                        case 'log_display':
                             val = ''
                             break
                         case 'checkbox':
@@ -212,6 +218,7 @@
                                 selectors: [],
                                 ip: [],
                                 topo: [],
+                                group: [],
                                 filters: [],
                                 excludes: [],
                                 with_cloud_id: false
@@ -226,7 +233,19 @@
                                     module_detail: []
                                 },
                                 data: [],
-                                separetor: ','
+                                separator: ','
+                            }
+                            break
+                        case 'host_allocation':
+                            val = {
+                                config: {
+                                    host_count: 0,
+                                    host_screen_value: '',
+                                    host_resources: [],
+                                    host_filter_detail: []
+                                },
+                                data: [],
+                                separator: ','
                             }
                             break
                         default:

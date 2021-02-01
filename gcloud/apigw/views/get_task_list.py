@@ -20,7 +20,7 @@ from gcloud import err_code
 from gcloud.apigw.decorators import mark_request_whether_is_trust
 from gcloud.apigw.decorators import project_inject
 from gcloud.taskflow3.models import TaskFlowInstance
-from gcloud.apigw.views.utils import format_task_list_data
+from gcloud.apigw.views.utils import format_task_list_data, paginate_list_data
 from gcloud.iam_auth.intercept import iam_intercept
 from gcloud.iam_auth.view_interceptors.apigw import ProjectViewInterceptor
 
@@ -41,27 +41,19 @@ def get_task_list(request, project_id):
     keyword = request.GET.get("keyword")
     is_started = request.GET.get("is_started")
     is_finished = request.GET.get("is_finished")
-    limit = int(request.GET.get("limit", 15))
-    offset = int(request.GET.get("offset", 0))
 
     filter_kwargs = dict(is_deleted=False, project_id=project.id)
     if keyword:
         filter_kwargs["pipeline_instance__name__contains"] = keyword
-    if is_started:
-        filter_kwargs["pipeline_instance__is_started"] = False if is_started == "false" else True
-    if is_finished:
-        filter_kwargs["pipeline_instance__is_finished"] = False if is_finished == "false" else True
+    if is_started is not None:
+        filter_kwargs["pipeline_instance__is_started"] = is_started
+    if is_finished is not None:
+        filter_kwargs["pipeline_instance__is_finished"] = is_finished
 
     tasks = TaskFlowInstance.objects.select_related("pipeline_instance").filter(**filter_kwargs)
 
-    if len(tasks) == 0:
-        response = JsonResponse({"result": True, "data": [], "code": err_code.SUCCESS.code})
-    else:
-        response = JsonResponse(
-            {
-                "result": True,
-                "data": format_task_list_data(tasks[max(0, offset) : min(len(tasks), offset + limit)], project),
-                "code": err_code.SUCCESS.code,
-            }
-        )
+    tasks, count = paginate_list_data(request, tasks)
+    response = JsonResponse(
+        {"result": True, "data": format_task_list_data(tasks, project), "count": count, "code": err_code.SUCCESS.code}
+    )
     return response

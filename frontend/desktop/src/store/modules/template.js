@@ -31,7 +31,7 @@ function generateInitLocation () {
     return [
         {
             id: 'node' + uuid(),
-            x: 20,
+            x: 40,
             y: 150,
             type: 'startpoint'
         },
@@ -40,7 +40,7 @@ function generateInitLocation () {
             x: 240,
             y: 145,
             name: '',
-            stage_name: i18n.t('步骤1'),
+            stage_name: '',
             type: 'tasknode'
         },
         {
@@ -65,9 +65,9 @@ function generateInitActivities (location, line) {
             incoming: [line[0].id],
             loop: null,
             name: '',
-            optional: false,
+            optional: true,
             outgoing: line[1].id,
-            stage_name: i18n.t('步骤1'),
+            stage_name: '',
             type: 'ServiceActivity',
             retryable: true,
             skippable: true
@@ -180,6 +180,9 @@ const template = {
         notify_type: [],
         time_out: '',
         category: '',
+        description: '',
+        executor_proxy: '',
+        template_labels: '',
         subprocess_info: {
             details: [],
             subproc_has_update: false
@@ -201,6 +204,15 @@ const template = {
         },
         setCategory (state, data) {
             state.category = data
+        },
+        setTplConfig (state, data) {
+            const { category, notify_type, receiver_group, description, executor_proxy, template_labels } = data
+            state.category = category
+            state.notify_type = notify_type
+            state.notify_receivers.receiver_group = receiver_group
+            state.description = description
+            state.executor_proxy = executor_proxy
+            state.template_labels = template_labels
         },
         setSubprocessUpdated (state, subflow) {
             state.subprocess_info.details.some(item => {
@@ -267,8 +279,9 @@ const template = {
         },
         // 更新模板各相关字段数据
         setTemplateData (state, data) {
-            const { name, template_id, pipeline_tree, notify_receivers,
-                notify_type, time_out, category, subprocess_info
+            const {
+                name, template_id, pipeline_tree, notify_receivers, template_labels,
+                notify_type, description, executor_proxy, time_out, category, subprocess_info
             } = data
             
             const pipelineData = JSON.parse(pipeline_tree)
@@ -277,6 +290,9 @@ const template = {
             state.template_id = template_id
             state.notify_receivers.receiver_group = receiver.receiver_group || []
             state.notify_type = notify_type ? JSON.parse(notify_type) : []
+            state.description = description
+            state.executor_proxy = executor_proxy
+            state.template_labels = template_labels || []
             state.time_out = time_out
             state.category = category
             state.subprocess_info = subprocess_info
@@ -293,7 +309,6 @@ const template = {
             const activities = generateInitActivities(location, line)
             const start_event = generateStartNode(location[0], line[0])
             const end_event = generateEndNode(location[2], line[1])
-
             state.name = ''
             state.activities = activities
             state.end_event = end_event
@@ -306,6 +321,14 @@ const template = {
             state.template_id = ''
             state.constants = {}
             state.category = ''
+            state.notify_type = []
+            state.notify_receivers = {
+                receiver_group: [],
+                more_receiver: ''
+            }
+            state.description = ''
+            state.executor_proxy = ''
+            state.template_labels = []
         },
         // 重置模板数据
         resetTemplateData (state) {
@@ -320,11 +343,15 @@ const template = {
             state.start_event = {}
             state.template_id = ''
             state.constants = {}
+            state.category = ''
             state.notify_type = []
             state.notify_receivers = {
                 receiver_group: [],
                 more_receiver: ''
             }
+            state.description = ''
+            state.executor_proxy = ''
+            state.template_labels = []
         },
         // 增加全局变量
         addVariable (state, variable) {
@@ -584,9 +611,9 @@ const template = {
                             incoming: [],
                             loop: null,
                             name: location.name || '',
-                            optional: false,
+                            optional: true,
                             outgoing: '',
-                            stage_name: i18n.t('步骤1'),
+                            stage_name: '',
                             type: 'ServiceActivity',
                             retryable: true,
                             skippable: true
@@ -599,9 +626,9 @@ const template = {
                             incoming: [],
                             loop: null,
                             name: location.name || '',
-                            optional: false,
+                            optional: true,
                             outgoing: '',
-                            stage_name: i18n.t('步骤1'),
+                            stage_name: '',
                             template_id: location.atomId,
                             version: location.atomVersion,
                             type: 'SubProcess'
@@ -737,7 +764,7 @@ const template = {
                     return item !== key
                 })
             } else {
-                const index = state.outputs.find(item => item === key)
+                const index = state.outputs.findIndex(item => item === key)
                 state.outputs.splice(index, 1, newKey)
             }
         },
@@ -784,7 +811,8 @@ const template = {
          */
         saveTemplateData ({ state }, { templateId, projectId, common }) {
             const { activities, constants, end_event, flows, gateways, line,
-                location, outputs, start_event, notify_receivers, notify_type, time_out, category
+                location, outputs, start_event, notify_receivers, notify_type,
+                time_out, category, description, executor_proxy, template_labels
             } = state
             // 剔除 location 的冗余字段
             const pureLocation = location.map(item => {
@@ -846,6 +874,9 @@ const template = {
                 project,
                 category,
                 timeout,
+                description,
+                executor_proxy,
+                template_labels,
                 pipeline_tree: pipelineTree,
                 notify_receivers: notifyReceivers,
                 notify_type: notifyType
@@ -866,6 +897,10 @@ const template = {
         // 获取节点标签列表
         getLabels ({ commit }, data) {
             return axios.get('api/v3/label/', { params: data }).then(response => response.data)
+        },
+        // 获取变量预览值
+        getConstantsPreviewResult ({ commit }, data) {
+            return axios.post('/template/api/get_constant_preview_result/', data).then(response => response.data)
         }
     },
     getters: {

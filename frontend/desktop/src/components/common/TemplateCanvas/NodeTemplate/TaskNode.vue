@@ -22,6 +22,7 @@
         <div class="node-status-block">
             <img v-if="node.icon" class="node-icon" :src="node.icon" />
             <i v-else :class="['node-icon-font', getIconCls(node)]"></i>
+            <div v-if="node.stage_name" class="stage-name">{{ node.stage_name }}</div>
         </div>
         <!-- 节点名称 -->
         <div class="node-name">
@@ -42,14 +43,15 @@
             <span v-if="node.isSkipped || node.skippable" class="dark-circle common-icon-dark-circle-s"></span>
             <span v-if="node.can_retry || node.retryable" class="dark-circle common-icon-dark-circle-r"></span>
         </div>
-        <!-- 节点执行顶部右侧 icon， 定时、暂停、执行中-->
-        <div v-if="node.status === 'SUSPENDED' || node.status === 'RUNNING'" class="task-status-icon">
-            <i v-if="node.status === 'RUNNING' && node.code === 'sleep_timer'" class="common-icon-clock"></i>
-            <template v-else>
-                <i v-if="node.status === 'SUSPENDED' || node.code === 'pause_node'" class="common-icon-double-vertical-line"></i>
-                <i v-else-if="node.status === 'RUNNING'" class="common-icon-loading"></i>
-            </template>
+        <!-- 节点执行顶部右侧 icon， 执行中、重试次数、是否为跳过-->
+        <div v-if="node.status === 'RUNNING'" class="task-status-icon">
+            <i class="common-icon-loading"></i>
         </div>
+        <div v-else-if="node.status === 'FINISHED' && (node.retry > 0 || node.skip)" class="task-status-icon">
+            <i v-if="node.skip" class="bk-icon icon-arrows-right-shape"></i>
+            <span v-else-if="node.retry > 0" class="retry-times">{{ node.retry > 99 ? '100+' : node.retry }}</span>
+        </div>
+        <!-- 节点顶部右侧生命周期 icon -->
         <div class="node-phase-icon" v-if="[1, 2].includes(node.phase)">
             <i
                 :class="['bk-icon', 'icon-exclamation-circle', {
@@ -93,17 +95,17 @@
                 </el-tooltip>
                 <el-tooltip v-if="node.code === 'pause_node'" placement="bottom" :content="$t('继续执行')">
                     <span
-                        class="common-icon-resume"
+                        class="common-icon-play"
                         @click.stop="onResumeClick">
                     </span>
                 </el-tooltip>
+                <el-tooltip placement="bottom" :content="$t('强制失败')">
+                    <span
+                        class="common-icon-mandatory-failure"
+                        @click.stop="mandatoryFailure">
+                    </span>
+                </el-tooltip>
             </template>
-            <el-tooltip v-if="['RUNNING', 'SUSPENDED'].includes(node.status)" placement="bottom" :content="$t('强制失败')">
-                <span
-                    class="common-icon-mandatory-failure"
-                    @click.stop="mandatoryFailure">
-                </span>
-            </el-tooltip>
         </div>
     </div>
 </template>
@@ -144,22 +146,14 @@
                 return false
             },
             isShowSkipBtn () {
-                if (this.node.status === 'FAILED') {
-                    if ((this.node.canSkipped === undefined && this.node.canRetry === undefined)
-                        || this.node.canSkipped
-                    ) {
-                        return true
-                    }
+                if (this.node.status === 'FAILED' && (this.node.skippable || this.node.skippable === undefined)) { // 兼容旧模板跳过字段缺失的情况
+                    return true
                 }
                 return false
             },
             isShowRetryBtn () {
-                if (this.node.status === 'FAILED') {
-                    if ((this.node.canSkipped === undefined && this.node.canRetry === undefined)
-                        || this.node.canRetry
-                    ) {
-                        return true
-                    }
+                if (this.node.status === 'FAILED' && (this.node.retryable || this.node.retryable === undefined)) { // 兼容旧模板重试字段缺失的情况
+                    return true
                 }
                 return false
             }

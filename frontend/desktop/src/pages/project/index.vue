@@ -175,6 +175,11 @@
             enter: i18n.t('进入')
         },
         {
+            name: 'mandate',
+            power: 'project_edit',
+            text: i18n.t('项目配置')
+        },
+        {
             name: 'edit',
             power: 'project_edit',
             text: i18n.t('编辑')
@@ -213,6 +218,7 @@
                 projectDetailLoading: false,
                 addPengding: false,
                 updatePending: false,
+                isMandateView: false,
                 projectDetail: {
                     name: '',
                     timeZone: 'Asia/Shanghai',
@@ -232,7 +238,7 @@
                     current: 1,
                     count: 0,
                     limit: 15,
-                    'limit-list': [15, 20, 30]
+                    'limit-list': [15, 30, 50, 100]
                 }
             }
         },
@@ -255,6 +261,9 @@
         methods: {
             ...mapMutations('project', [
                 'setTimeZone'
+            ]),
+            ...mapMutations('atomForm', [
+                'clearAtomForm'
             ]),
             ...mapActions([
                 'queryUserPermission'
@@ -415,7 +424,7 @@
                 await this.changeDefaultProject(id)
                 const timeZone = this.projectList.find(m => Number(m.id) === Number(id)).time_zone || 'Asia/Shanghai'
                 this.setTimeZone(timeZone)
-                $.atoms = {}
+                this.clearAtomForm() // notice: 清除标准插件配置项里的全局变量缓存
 
                 this.$router.push({
                     name: 'process',
@@ -495,7 +504,7 @@
                 if (isDisable) {
                     return name === 'start'
                 } else {
-                    return ['view', 'edit', 'stop'].includes(name)
+                    return ['view', 'stop', 'mandate'].includes(name)
                 }
             },
             /**
@@ -504,16 +513,18 @@
              * @param {String} name
              */
             onClickOptBtn (item, name) {
-                const _this = this
                 switch (name) {
                     case 'view':
-                        _this.onViewProject(item)
+                        this.onViewProject(item)
                         break
-                    case 'edit':
-                        _this.onEditProject(item)
+                    // case 'edit':
+                    //     this.onEditProject(item)
+                    //     break
+                    case 'mandate':
+                        this.$router.push({ name: 'projectConfig', params: { id: item.id } })
                         break
                     default:
-                        _this.onChangeProjectStatus(item, name)
+                        this.onChangeProjectStatus(item, name)
                 }
             },
             handlePageLimitChange (val) {

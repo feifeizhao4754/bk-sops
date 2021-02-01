@@ -41,7 +41,7 @@
                     :pagination="pagination"
                     v-bkloading="{ isLoading: listLoading, opacity: 1 }"
                     @page-change="onPageChange"
-                    @page-limit-change="handlePageLimitChange">
+                    @page-limit-change="onPageLimitChange">
                     <bk-table-column :label="$t('所属项目')" width="160">
                         <template slot-scope="props">
                             <span :title="props.row.task.project.name">{{ props.row.task.project.name }}</span>
@@ -288,6 +288,16 @@
         mixins: [permission, task],
         props: ['project_id', 'app_id'],
         data () {
+            const {
+                page = 1,
+                limit = 15,
+                selectedProject = '',
+                start_time = '',
+                end_time = '',
+                creator = '',
+                statusSync = '',
+                keyword = ''
+            } = this.$route.query
             return {
                 listLoading: true,
                 functorSync: 0,
@@ -328,17 +338,17 @@
                 status: undefined,
                 functorCategory: [],
                 requestData: {
-                    selectedProject: '',
-                    executeTime: [],
-                    creator: '',
-                    statusSync: '',
-                    flowName: ''
+                    selectedProject,
+                    creator,
+                    statusSync,
+                    executeTime: (start_time && end_time) ? [start_time, end_time] : [],
+                    taskName: keyword
                 },
                 pagination: {
-                    current: 1,
+                    current: Number(page),
                     count: 0,
-                    limit: 15,
-                    'limit-list': [15, 20, 30]
+                    limit: Number(limit),
+                    'limit-list': [15, 30, 50, 100]
                 },
                 permissionLoading: false, // 查询公共流程在项目下的创建任务权限 loading
                 tplAction: [],
@@ -386,11 +396,11 @@
             async loadFunctionTask () {
                 this.listLoading = true
                 try {
-                    const { selectedProject, executeTime, creator, statusSync, flowName } = this.requestData
+                    const { selectedProject, executeTime, creator, statusSync, taskName } = this.requestData
                     const data = {
                         limit: this.pagination.limit,
                         offset: (this.pagination.current - 1) * this.pagination.limit,
-                        task__pipeline_instance__name__contains: flowName || undefined,
+                        task__pipeline_instance__name__contains: taskName || undefined,
                         creator: creator || undefined,
                         task__project__id: selectedProject || undefined,
                         status: statusSync || undefined
@@ -419,12 +429,43 @@
             },
             onPageChange (page) {
                 this.pagination.current = page
+                this.updateUrl()
                 this.loadFunctionTask()
                 // 重置自动刷新时间
                 this.onOpenAutoRedraw()
             },
+            onPageLimitChange (val) {
+                this.pagination.limit = val
+                this.pagination.current = 1
+                this.updateUrl()
+                this.loadFunctionTask()
+                // 重置自动刷新时间
+                this.onOpenAutoRedraw()
+            },
+            updateUrl () {
+                const { current, limit } = this.pagination
+                const { selectedProject, executeTime, creator, statusSync, taskName } = this.requestData
+                const filterObj = {
+                    limit,
+                    selectedProject,
+                    creator,
+                    statusSync,
+                    page: current,
+                    start_time: executeTime[0],
+                    end_time: executeTime[1],
+                    keyword: taskName
+                }
+                const query = {}
+                Object.keys(filterObj).forEach(key => {
+                    const val = filterObj[key]
+                    if (val || val === 0 || val === false) {
+                        query[key] = val
+                    }
+                })
+                this.$router.push({ name: 'functionHome', query })
+            },
             searchInputhandler (data) {
-                this.requestData.flowName = data
+                this.requestData.taskName = data
                 this.pagination.current = 1
                 this.loadFunctionTask()
             },
@@ -673,8 +714,9 @@
                 this.applyForPermission(required, data.auth_actions, permissionData)
             },
             onSearchFormSubmit (data) {
-                this.requestData = data
+                this.requestData = Object.assign({}, this.requestData, data)
                 this.pagination.current = 1
+                this.updateUrl()
                 this.loadFunctionTask()
             },
             onAutoRedrawChange (val) {
@@ -699,12 +741,6 @@
                 clearTimeout(this.autoRedrawTimer)
                 this.autoRedrawTimer = null
                 this.isAutoRedraw = false
-            },
-            handlePageLimitChange (val) {
-                this.pagination.limit = val
-                this.pagination.current = 1
-                this.onOpenAutoRedraw() // 重置自动刷新时间
-                this.loadFunctionTask()
             }
         }
     }

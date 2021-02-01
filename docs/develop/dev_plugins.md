@@ -79,6 +79,27 @@ ComponentClient.setup_components(collections.AVAILABLE_COLLECTIONS)
 
 ### 4. 标准插件后台开发
 
+#### 生成标准插件基本文件及目录
+在项目根目录下运行命令
+```shell script
+python manage.py create_new_plugin {group_code} {plugin_code} {version} {plugin_env} {app_code} {append}
+```
+
+其中
+
+- **group_code**为插件所属的系列（如：cc,tgw,gcs)
+- **plugin_code**为插件的code（如：create_set)
+- **version**为插件的版本（如：v1.0)
+- **plugin_env**为插件的类型（如：open，ieod)
+- **app_code**为插件所在app的code（如：pipeline_plugins)
+- **append**为插件所在目录后缀（如：pipeline_plugins/components/collections/sites 中的 sites, 可为空)
+
+eg.
+```shell script
+python manage.py create_new_plugin cc create_set v1.0 open pipeline_plugins sites
+```
+即创建CC系列插件create_set，版本号为v1.0，属于开源版插件
+
 在 `plugin.py` 文件中编写插件后台逻辑，主要包括标准插件定义和后台执行逻辑，下面是示例代码
 
 ```python
@@ -101,6 +122,14 @@ __group_name__ = _(u"自定义插件(CUSTOM)")
 class TestCustomService(Service):
     __need_schedule__ = False
 
+    def execute_pre_process(self, data, parent_data):
+        test_input = data.inputs.test_input
+        if not test_input.startswith("test_"):
+            message = "test_input should start with 'test_'"
+            data.set_outputs('ex_data', message)
+            return False
+        return True
+        
     def execute(self, data, parent_data):
         executor = parent_data.inputs.executor
         biz_cc_id = parent_data.inputs.biz_cc_id
@@ -152,10 +181,21 @@ TestCustomService 类详解：
 
 - `__need_schedule__`：是否是异步标准插件（包括异步轮询和异步回调），默认为 False。
 - `interval`：异步标准插件的轮询策略。
+- `def execute_pre_process`：标准插件执行前预处理逻辑，可进行插件输入数据预处理和校验，返回True/False，代表预处理结果，为False则不会调用execute函数。
 - `def execute`：标准插件执行逻辑，包含前端参数获取、API 参数组装、结果解析、结果输出。
 - `def schedule`：异步标准插件的轮询或者回调逻辑，同步标准插件不需要定义该方法。
 - `def outputs_format`：输出参数定义。
 - `def inputs_format`：输入参数定义。
+
+execute_pre_process 函数详解：
+
+- 可以是任何 python 代码，对插件数据进行校验和预处理，返回预处理结果。可以不实现，默认返回True。
+- data 是标准插件输入输出参数数据对象，输入参数对应于前端的表单，可以用 `data.inputs.xxx` 或者 `data.get_one_of_inputs('xxx')` 获取
+某一个参数；执行完成可以使用 `data.set_outputs` 写入输出参数，异常信息请赋值给 `ex_data`。
+- `parent_data` 是任务的公共参数，包括 executor（执行者），operator（操作员），biz_cc_id（所属业务 ID）等。详细信息请查看
+`gcloud/taskflow3/utils.py`。
+- 返回 `False` 表示预处理或校验失败，会直接返回插件运行失败结果和异常信息，不会执行 `execute` 及 `schedule` 函数；
+返回 `True` 表示预处理或校验成功，会正常执行 `execute` 函数。
 
 execute 函数详解：
 

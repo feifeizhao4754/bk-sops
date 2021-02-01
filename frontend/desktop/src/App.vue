@@ -122,7 +122,7 @@
             window.show_msg = (message, type) => {
                 this.$bkMessage({
                     message,
-                    isSingleLine: false,
+                    ellipsisLine: 2,
                     theme: type
                 })
             }
@@ -141,15 +141,22 @@
                 'loadAppmakerDetail'
             ]),
             ...mapActions('project', [
-                'loadProjectDetail'
+                'loadProjectDetail',
+                'changeDefaultProject'
             ]),
             ...mapMutations('appmaker/', [
                 'setAppmakerTemplateId',
                 'setAppmakerDetail'
             ]),
+            ...mapMutations('atomForm/', [
+                'clearAtomForm'
+            ]),
             ...mapMutations('project', [
+                'setTimeZone',
                 'setProjectName',
-                'setProjectActions'
+                'setProjectActions',
+                'setProjectId',
+                'setBizId'
             ]),
             ...mapMutations([
                 'setPageFooter',
@@ -172,13 +179,19 @@
                 try {
                     this.projectDetailLoading = true
                     const projectDetail = await this.loadProjectDetail(this.project_id)
-                    this.setProjectName(projectDetail.name)
-                    this.setProjectActions(projectDetail.auth_actions)
+                    const { name, id, bk_biz_id, auth_actions } = projectDetail
+                    this.setProjectId(id)
+                    this.setBizId(bk_biz_id)
+                    this.setProjectName(name)
+                    this.setProjectActions(auth_actions)
+                    this.clearAtomForm() // notice: 清除标准插件配置项里的全局变量缓存
+                    this.setTimeZone(projectDetail.timeZone)
                     if (this.$route.name === 'templateEdit' && this.$route.query.common) {
                         setConfigContext(this.site_url)
                     } else {
                         setConfigContext(this.site_url, projectDetail)
                     }
+                    this.changeDefaultProject(this.project_id)
                 } catch (err) {
                     errorHandler(err, this)
                 } finally {
@@ -242,8 +255,8 @@
                 } else {
                     // 项目上下文页面
                     if (this.project_id !== '' && !isNaN(this.project_id)) {
-                        this.permissinApplyShow = false
                         if (this.project_id !== preProjectId) {
+                            this.permissinApplyShow = false
                             this.getProjectDetail()
                         }
                     } else { // 需要项目id页面，id为空时，显示无权限页面

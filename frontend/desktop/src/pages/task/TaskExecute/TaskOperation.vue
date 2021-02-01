@@ -44,8 +44,9 @@
                     :has-admin-perm="adminView"
                     @hook:mounted="onTemplateCanvasMounted"
                     @onNodeClick="onNodeClick"
+                    @onConditionClick="onOpenConditionEdit"
                     @onRetryClick="onRetryClick"
-                    @onForceFail="onForceFail"
+                    @onForceFail="onForceFailClick"
                     @onSkipClick="onSkipClick"
                     @onModifyTimeClick="onModifyTimeClick"
                     @onGatewaySelectionClick="onGatewaySelectionClick"
@@ -67,15 +68,18 @@
                 </ModifyParams>
                 <ExecuteInfo
                     v-if="nodeInfoType === 'executeInfo' || nodeInfoType === 'viewNodeDetails'"
+                    :state="state"
                     :node-data="nodeData"
                     :selected-flow-path="selectedFlowPath"
-                    :tree-node-config="treeNodeConfig"
                     :admin-view="adminView"
+                    :pipeline-data="pipelineData"
                     :default-active-id="defaultActiveId"
                     :node-detail-config="nodeDetailConfig"
                     @onRetryClick="onRetryClick"
                     @onSkipClick="onSkipClick"
                     @onTaskNodeResumeClick="onTaskNodeResumeClick"
+                    @onModifyTimeClick="onModifyTimeClick"
+                    @onForceFail="onForceFailClick"
                     @onClickTreeNode="onClickTreeNode">
                 </ExecuteInfo>
                 <RetryNode
@@ -112,11 +116,56 @@
             @onConfirmRevokeTask="onConfirmRevokeTask"
             @onCancelRevokeTask="onCancelRevokeTask">
         </revokeDialog>
+        <bk-dialog
+            width="400"
+            ext-cls="common-dialog"
+            header-position="left"
+            :mask-close="false"
+            :auto-close="false"
+            :title="$t('跳过节点')"
+            :loading="pending.skip"
+            :value="isSkipDialogShow"
+            @confirm="nodeTaskSkip(skipNodeId)"
+            @cancel="onSkipCancel">
+            <div class="leave-tips" style="padding: 30px 20px;">{{ $t('是否跳过该任务节点？') }}</div>
+        </bk-dialog>
+        <bk-dialog
+            width="400"
+            ext-cls="common-dialog"
+            header-position="left"
+            :mask-close="false"
+            :auto-close="false"
+            :title="$t('强制失败')"
+            :loading="pending.forceFail"
+            :value="isForceFailDialogShow"
+            @confirm="nodeForceFail(forceFailId)"
+            @cancel="onForceFailCancel">
+            <div class="leave-tips" style="padding: 30px 20px;">{{ $t('是否将该任务节点强制执行失败？') }}</div>
+        </bk-dialog>
+        <bk-dialog
+            width="400"
+            ext-cls="common-dialog"
+            header-position="left"
+            :mask-close="false"
+            :auto-close="false"
+            :title="$t('继续执行')"
+            :loading="pending.parseNodeResume"
+            :value="isNodeResumeDialogShow"
+            @confirm="nodeResume(nodeResumeId)"
+            @cancel="onTaskNodeResumeCancel">
+            <div class="leave-tips" style="padding: 30px 20px;">{{ $t('是否完成暂停节点继续向后执行？') }}</div>
+        </bk-dialog>
+        <condition-edit
+            ref="conditionEdit"
+            :is-readonly="true"
+            :is-show.sync="isShowConditionEdit"
+            :condition-data="conditionData">
+        </condition-edit>
     </div>
 </template>
 <script>
     import i18n from '@/config/i18n/index.js'
-    import { mapActions, mapState, mapGetters } from 'vuex'
+    import { mapActions, mapState } from 'vuex'
     import axios from 'axios'
     import tools from '@/utils/tools.js'
     import { errorHandler } from '@/utils/errorHandler.js'
@@ -132,6 +181,7 @@
     import permission from '@/mixins/permission.js'
     import TaskOperationHeader from './TaskOperationHeader'
     import TemplateData from './TemplateData'
+    import ConditionEdit from '../../template/TemplateEdit/ConditionEdit.vue'
 
     const CancelToken = axios.CancelToken
     let source = CancelToken.source()
@@ -177,7 +227,8 @@
             gatewaySelectDialog,
             revokeDialog,
             TaskOperationHeader,
-            TemplateData
+            TemplateData,
+            ConditionEdit
         },
         mixins: [permission],
         props: {
@@ -236,8 +287,17 @@
                 },
                 activeOperation: '', // 当前任务操作（头部区域操作按钮触发）
                 isRevokeDialogShow: false,
+                isSkipDialogShow: false,
+                skipNodeId: undefined,
+                isForceFailDialogShow: false,
+                forceFailId: undefined,
+                isNodeResumeDialogShow: false,
+                nodeResumeId: undefined,
                 operateLoading: false,
-                retrievedCovergeGateways: [] // 遍历过的汇聚节点
+                retrievedCovergeGateways: [], // 遍历过的汇聚节点
+                pollErrorTimes: 0, // 任务状态查询异常连续三次后，停止轮询
+                isShowConditionEdit: false, // 条件分支侧栏
+                conditionData: {}
             }
         },
         computed: {
@@ -351,7 +411,7 @@
                 'skipExclusiveGateway',
                 'pauseNodeResume',
                 'getNodeActInfo',
-                'onForcedFail'
+                'forceFail'
             ]),
             ...mapActions('atomForm/', [
                 'loadSingleAtomList'
@@ -359,14 +419,11 @@
             ...mapActions('admin/', [
                 'taskflowNodeForceFail'
             ]),
-            ...mapGetters('template/', [
-                'getLocalTemplateData'
-            ]),
             async loadTaskStatus () {
                 try {
                     this.$emit('taskStatusLoadChange', true)
                     let instanceStatus = {}
-                    if (['FINISHED', 'REVOKED'].includes(this.state) && this.cacheStatus) { // 总任务：完成/撤销时,取实例缓存数据
+                    if (['FINISHED', 'REVOKED'].includes(this.state) && this.cacheStatus && this.cacheStatus.children[this.taskId]) { // 总任务：完成/撤销时,取实例缓存数据
                         instanceStatus = await this.getGlobalCacheStatus(this.taskId)
                     } else if (
                         this.instanceStatus.state
@@ -395,6 +452,8 @@
                     if (instanceStatus.result) {
                         this.state = instanceStatus.data.state
                         this.instanceStatus = instanceStatus.data
+                        this.pollErrorTimes = 0
+
                         if (
                             !this.cacheStatus
                             && ['FINISHED', 'REVOKED'].includes(this.state)
@@ -407,7 +466,12 @@
                         }
                         this.updateNodeInfo()
                     } else {
-                        this.cancelTaskStatusTimer()
+                        this.pollErrorTimes += 1
+                        if (this.pollErrorTimes > 2) {
+                            this.cancelTaskStatusTimer()
+                        } else {
+                            this.setTaskStatusTimer()
+                        }
                         errorHandler(instanceStatus, this)
                     }
                 } catch (e) {
@@ -609,11 +673,23 @@
                     this.pending.task = false
                 }
             },
-            async nodeTaskSkip (data) {
+            async nodeTaskSkip (id) {
+                if (this.pending.skip) {
+                    return
+                }
+
                 this.pending.skip = true
                 try {
+                    const data = {
+                        instance_id: this.instance_id,
+                        node_id: id
+                    }
                     const res = await this.instanceNodeSkip(data)
                     if (res.result) {
+                        this.isNodeInfoPanelShow = false
+                        this.isSkipDialogShow = false
+                        this.nodeInfoType = ''
+                        this.skipNodeId = undefined
                         this.$bkMessage({
                             message: i18n.t('跳过成功'),
                             theme: 'success'
@@ -630,7 +706,7 @@
                     this.pending.skip = false
                 }
             },
-            async onForceFail (id) {
+            async nodeForceFail (id) {
                 if (this.pending.forceFail) {
                     return
                 }
@@ -640,12 +716,16 @@
                         node_id: id,
                         task_id: Number(this.instance_id)
                     }
-                    const res = await this.onForcedFail(params)
+                    const res = await this.forceFail(params)
                     if (res.result) {
                         this.$bkMessage({
                             message: i18n.t('强制失败执行成功'),
                             theme: 'success'
                         })
+                        this.isForceFailDialogShow = false
+                        this.isNodeInfoPanelShow = false
+                        this.nodeInfoType = ''
+                        this.forceFailId = undefined
                         setTimeout(() => {
                             this.setTaskStatusTimer()
                         }, 1000)
@@ -679,15 +759,27 @@
                     this.pending.selectGateway = false
                 }
             },
-            async nodeResume (data) {
+            async nodeResume (id) {
+                if (this.pending.parseNodeResume) {
+                    return
+                }
                 this.pending.parseNodeResume = true
                 try {
+                    const data = {
+                        instance_id: this.instance_id,
+                        node_id: id,
+                        data: { callback: 'resume' }
+                    }
                     const res = await this.pauseNodeResume(data)
                     if (res.result) {
                         this.$bkMessage({
                             message: i18n.t('继续成功'),
                             theme: 'success'
                         })
+                        this.isNodeResumeDialogShow = false
+                        this.isNodeInfoPanelShow = false
+                        this.nodeInfoType = ''
+                        this.nodeResumeId = undefined
                         setTimeout(() => {
                             this.setTaskStatusTimer()
                         }, 1000)
@@ -721,21 +813,17 @@
             updateNodeInfo () {
                 const nodes = this.instanceStatus.children
                 for (const id in nodes) {
-                    let code, canSkipped, canRetry
-                    let isSkipped = false
+                    let code, skippable, retryable
+                    const currentNode = nodes[id]
                     const nodeActivities = this.pipelineData.activities[id]
-
-                    if (nodes[id].state === 'FINISHED') {
-                        isSkipped = nodes[id].skip || nodes[id].error_ignorable
-                    }
 
                     if (nodeActivities) {
                         code = nodeActivities.component ? nodeActivities.component.code : ''
-                        canSkipped = nodeActivities.isSkipped || nodeActivities.skippable
-                        canRetry = nodeActivities.can_retry || nodeActivities.retryable
+                        skippable = nodeActivities.isSkipped || nodeActivities.skippable
+                        retryable = nodeActivities.can_retry || nodeActivities.retryable
                     }
 
-                    const data = { status: nodes[id].state, isSkipped, code, canSkipped, canRetry }
+                    const data = { status: currentNode.state, code, skippable, retryable, skip: currentNode.skip, retry: currentNode.retry }
 
                     this.setTaskNodeStatus(id, data)
                 }
@@ -762,14 +850,20 @@
                 this.setNodeDetailConfig(id)
             },
             onSkipClick (id) {
-                if (this.pending.skip) return
-                const data = {
-                    instance_id: this.instance_id,
-                    node_id: id
-                }
-                this.nodeTaskSkip(data)
-                this.isNodeInfoPanelShow = false
-                this.nodeInfoType = ''
+                this.isSkipDialogShow = true
+                this.skipNodeId = id
+            },
+            onSkipCancel () {
+                this.isSkipDialogShow = false
+                this.skipNodeId = undefined
+            },
+            onForceFailClick (id) {
+                this.forceFailId = id
+                this.isForceFailDialogShow = true
+            },
+            onForceFailCancel () {
+                this.isForceFailDialogShow = false
+                this.forceFailId = undefined
             },
             onModifyTimeClick (id) {
                 this.onSidesliderConfig('modifyTime', i18n.t('修改时间'))
@@ -789,15 +883,12 @@
                 this.isGatewaySelectDialogShow = true
             },
             onTaskNodeResumeClick (id) {
-                if (this.pending.parseNodeResume) return
-                const data = {
-                    instance_id: this.instance_id,
-                    node_id: id,
-                    data: { callback: 'resume' }
-                }
-                this.nodeResume(data)
-                this.isNodeInfoPanelShow = false
-                this.nodeInfoType = ''
+                this.nodeResumeId = id
+                this.isNodeResumeDialogShow = true
+            },
+            onTaskNodeResumeCancel () {
+                this.isNodeResumeDialogShow = false
+                this.nodeResumeId = undefined
             },
             onSubflowPauseResumeClick (id, value) {
                 if (this.pending.subflowPause) return
@@ -884,7 +975,7 @@
                 this.$refs.templateCanvas.onUpdateNodeInfo(id, { isActived })
             },
             // 查看参数、修改参数 （侧滑面板 标题 点击遮罩关闭）
-            onTaskParamsClick (type, isNodeInfoPanelShow, name) {
+            onTaskParamsClick (type, name) {
                 if (type === 'viewNodeDetails') {
                     let nodeData = tools.deepClone(this.nodeData)
                     let firstNodeId = null
@@ -914,10 +1005,7 @@
                     }
                 }
                 if (type === 'templateData') {
-                    this.transPipelineTreeStr()
-                }
-                if (type === 'templateData') {
-                    this.transPipelineTreeStr()
+                    this.templateData = JSON.stringify(this.pipelineData, null, 4)
                 }
                 this.onSidesliderConfig(type, name)
             },
@@ -927,7 +1015,7 @@
                 this.isNodeInfoPanelShow = true
                 this.nodeInfoType = type
                 this.quickClose = true
-                if (['retryNode', 'modifyTime', 'modifyParams', 'templateData'].includes(type)) {
+                if (['retryNode', 'modifyTime', 'modifyParams'].includes(type)) {
                     this.quickClose = false
                 }
             },
@@ -986,7 +1074,7 @@
                         this.updateNodeActived(this.nodeDetailConfig.node_id, false)
                     }
                     this.setNodeDetailConfig(id)
-                    this.onTaskParamsClick('executeInfo', true, i18n.t('节点参数'))
+                    this.onSidesliderConfig('executeInfo', i18n.t('节点参数'))
                     this.updateNodeActived(id, true)
                 } else {
                     // 分支网关节点失败时展开侧滑面板
@@ -1002,9 +1090,13 @@
                             instance_id: this.instance_id,
                             subprocess_stack: JSON.stringify(subprocessStack)
                         }
-                        this.onTaskParamsClick('executeInfo', true, i18n.t('节点参数'))
+                        this.onSidesliderConfig('executeInfo', i18n.t('节点参数'))
                     }
                 }
+            },
+            onOpenConditionEdit (data) {
+                this.isShowConditionEdit = true
+                this.conditionData = { ...data }
             },
             handleSubflowAtomClick (id) {
                 this.cancelTaskStatusTimer()
@@ -1016,7 +1108,6 @@
                     nodeId: nodeActivities.id,
                     type: 'SubProcess'
                 })
-                
                 this.pipelineData = this.pipelineData.activities[id].pipeline
                 this.updateTaskStatus(id)
             },
@@ -1210,10 +1301,6 @@
             packUp () {
                 this.isNodeInfoPanelShow = false
             },
-            async transPipelineTreeStr () {
-                const templateData = await this.getLocalTemplateData()
-                this.templateData = JSON.stringify(templateData, null, 4)
-            },
             onshutDown () {
                 this.isNodeInfoPanelShow = false
                 this.templateData = ''
@@ -1319,8 +1406,12 @@
                 left: 40px;
             }
         }
+        .task-management-page {
+            /deep/ .canvas-wrapper.jsflow .jtk-endpoint {
+                z-index: 2 !important;
+            }
+        }
     }
-
 }
 /deep/.bk-sideslider-content {
     height: calc(100% - 60px);

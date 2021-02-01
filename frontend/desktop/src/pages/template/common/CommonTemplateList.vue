@@ -56,8 +56,9 @@
                     :data="commonTemplateData"
                     :pagination="pagination"
                     v-bkloading="{ isLoading: listLoading, opacity: 1 }"
+                    @sort-change="handleSortChange"
                     @page-change="onPageChange"
-                    @page-limit-change="handlePageLimitChange">
+                    @page-limit-change="onPageLimitChange">
                     <bk-table-column label="ID" prop="id" width="80"></bk-table-column>
                     <bk-table-column :label="$t('流程名称')" min-width="200">
                         <template slot-scope="props">
@@ -78,8 +79,8 @@
                         </template>
                     </bk-table-column>
                     <bk-table-column :label="$t('分类')" prop="category_name" width="180"></bk-table-column>
-                    <bk-table-column :label="$t('创建时间')" prop="create_time" width="200"></bk-table-column>
-                    <bk-table-column :label="$t('更新时间')" prop="edit_time" width="200"></bk-table-column>
+                    <bk-table-column :label="$t('创建时间')" prop="create_time" sortable="custom" width="200"></bk-table-column>
+                    <bk-table-column :label="$t('更新时间')" prop="edit_time" sortable="custom" width="200"></bk-table-column>
                     <bk-table-column width="120" :label="$t('子流程更新')">
                         <template slot-scope="props">
                             <div :class="['subflow-update', { 'subflow-has-update': props.row.subprocess_has_update }]">
@@ -274,10 +275,17 @@
             NoData
         },
         mixins: [permission],
-        props: {
-            page: [String, Number]
-        },
         data () {
+            const {
+                page = 1,
+                limit = 15,
+                category = '',
+                start_time = '',
+                end_time = '',
+                subprocessUpdateVal = '',
+                creator = '',
+                keyword = ''
+            } = this.$route.query
             return {
                 listLoading: true,
                 projectInfoLoading: true, // 模板分类信息 loading
@@ -303,25 +311,26 @@
                 templateType: this.common_template,
                 deleteTemplateName: '',
                 requestData: {
-                    category: '',
-                    queryTime: [],
-                    subprocessUpdateVal: '',
-                    creator: '',
-                    flowName: ''
+                    category,
+                    subprocessUpdateVal: subprocessUpdateVal !== '' ? Number(subprocessUpdateVal) : '',
+                    creator,
+                    queryTime: (start_time && end_time) ? [start_time, end_time] : [],
+                    flowName: keyword
                 },
                 totalPage: 1,
                 pagination: {
-                    current: Number(this.page) || 1,
+                    current: Number(page),
                     count: 0,
-                    limit: 15,
-                    'limit-list': [15, 20, 30]
+                    limit: Number(limit),
+                    'limit-list': [15, 30, 50, 100]
                 },
                 collectingId: '', // 正在被收藏/取消收藏的模板id
                 hasCreateCommonTplPerm: false, // 创建公共流程权限
                 permissionLoading: false,
                 hasCreateTaskPerm: true,
                 selectedProject: {},
-                selectedTpl: {}
+                selectedTpl: {},
+                ordering: null // 排序参数
             }
         },
         computed: {
@@ -414,7 +423,8 @@
                         pipeline_template__creator__contains: creator || undefined,
                         category: category || undefined,
                         subprocess_has_update,
-                        has_subprocess
+                        has_subprocess,
+                        order_by: this.ordering || undefined
                     }
                     if (queryTime[0] && queryTime[1]) {
                         data['pipeline_template__edit_time__gte'] = moment(queryTime[0]).format('YYYY-MM-DD')
@@ -490,8 +500,9 @@
                 this.getTemplateList()
             },
             onSearchFormSubmit (data) {
-                this.requestData = data
+                this.requestData = Object.assign({}, this.requestData, data)
                 this.pagination.current = 1
+                this.updateUrl()
                 this.getTemplateList()
             },
             onImportTemplate () {
@@ -539,10 +550,50 @@
                 this.deleteTemplateName = template.name
                 this.isDeleteDialogShow = true
             },
+            handleSortChange ({ prop, order }) {
+                const params = 'pipeline_template__' + prop
+                if (order === 'ascending') {
+                    this.ordering = params
+                } else if (order === 'descending') {
+                    this.ordering = '-' + params
+                } else {
+                    this.ordering = ''
+                }
+                this.pagination.current = 1
+                this.getTemplateList()
+            },
             onPageChange (page) {
                 this.pagination.current = page
-                this.$router.push({ name: 'commonProcessList', query: { page: page } })
+                this.updateUrl()
                 this.getTemplateList()
+            },
+            onPageLimitChange (val) {
+                this.pagination.limit = val
+                this.pagination.current = 1
+                this.updateUrl()
+                this.getTemplateList()
+            },
+            updateUrl () {
+                const { current, limit } = this.pagination
+                const { category, queryTime, subprocessUpdateVal, creator, flowName } = this.requestData
+                const filterObj = {
+                    limit,
+                    category,
+                    subprocessUpdateVal,
+                    creator,
+                    page: current,
+                    start_time: queryTime[0],
+                    end_time: queryTime[1],
+                    keyword: flowName
+                }
+                const query = {}
+                Object.keys(filterObj).forEach(key => {
+                    const val = filterObj[key]
+                    if (val || val === 0 || val === false) {
+                        query[key] = val
+                    }
+                })
+                this.$router.push({ name: 'commonProcessList', query })
             },
             /**
              * 单个模板操作项点击时校验
@@ -621,11 +672,6 @@
                     return '--'
                 }
                 return item.subprocess_has_update ? i18n.t('是') : i18n.t('否')
-            },
-            handlePageLimitChange (val) {
-                this.pagination.limit = val
-                this.pagination.current = 1
-                this.getTemplateList()
             },
             // 标题提示信息，查看子流程更新
             handleSubflowFilter () {

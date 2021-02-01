@@ -13,6 +13,8 @@ specific language governing permissions and limitations under the License.
 
 from django.conf.urls import url
 
+from gcloud.apigw.views.get_plugin_detail import get_plugin_detail
+from gcloud.apigw.views.get_functionalization_task_list import get_functionalization_task_list
 from gcloud.apigw.views.claim_functionalization_task import claim_functionalization_task
 from gcloud.apigw.views.create_periodic_task import create_periodic_task
 from gcloud.apigw.views.create_task import create_task
@@ -40,12 +42,14 @@ from gcloud.apigw.views.node_callback import node_callback
 from gcloud.apigw.views.operate_node import operate_node
 from gcloud.apigw.views.operate_task import operate_task
 from gcloud.apigw.views.plugin_proxy import dispatch_plugin_query
+from gcloud.apigw.views.preview_common_task_tree import preview_common_task_tree
 from gcloud.apigw.views.preview_task_tree import preview_task_tree
 from gcloud.apigw.views.query_task_count import query_task_count
 from gcloud.apigw.views.set_periodic_task_enabled import set_periodic_task_enabled
 from gcloud.apigw.views.start_task import start_task
 from gcloud.apigw.views.get_tasks_status import get_tasks_status
 from gcloud.apigw.views.import_project_template import import_project_template
+from gcloud.apigw.views.get_tasks_manual_intervention_state import get_tasks_manual_intervention_state
 
 urlpatterns = [
     url(r"^dispatch_plugin_query/$", dispatch_plugin_query),
@@ -75,6 +79,7 @@ urlpatterns = [
     url(r"^node_callback/(?P<task_id>\d+)/(?P<project_id>\d+)/$", node_callback),
     url(r"^import_common_template/$", import_common_template),
     url(r"^get_plugin_list/(?P<project_id>\d+)/$", get_plugin_list),
+    url(r"^get_plugin_detail/(?P<project_id>\d+)/$", get_plugin_detail),
     url(r"^get_user_project_list/$", get_user_project_list),
     url(r"^get_user_project_detail/(?P<project_id>\d+)/$", get_user_project_detail),
     url(r"^get_template_schemes/(?P<project_id>\d+)/(?P<template_id>\d+)/$", get_template_schemes,),
@@ -82,6 +87,9 @@ urlpatterns = [
     url(r"^get_task_node_data/(?P<project_id>\d+)/(?P<task_id>\d+)/$", get_task_node_data,),
     url(r"^operate_node/(?P<project_id>\d+)/(?P<task_id>\d+)/$", operate_node),
     url(r"^get_tasks_status/(?P<project_id>\d+)/$", get_tasks_status),
+    url(r"^get_tasks_manual_intervention_state/(?P<project_id>\d+)/$", get_tasks_manual_intervention_state),
     url(r"^import_project_template/(?P<project_id>\d+)/$", import_project_template),
     url(r"^claim_functionalization_task/(?P<task_id>\d+)/(?P<project_id>\d+)/$", claim_functionalization_task),
+    url(r"^get_functionalization_task_list/$", get_functionalization_task_list),
+    url(r"^preview_common_task_tree/(?P<project_id>\d+)/(?P<template_id>\d+)/$", preview_common_task_tree),
 ]

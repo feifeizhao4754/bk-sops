@@ -98,6 +98,9 @@ const store = new Vuex.Store({
         getNotifyTypes () {
             return axios.get('core/api/get_msg_types/').then(response => response.data)
         },
+        getNotifyGroup ({ commit }, params) {
+            return axios.get('api/v3/staff_group/', { params }).then(response => response.data)
+        },
         // 获取收藏列表
         loadCollectList ({ commit }, data) {
             return axios.get('api/v3/collection/', {
@@ -136,8 +139,23 @@ const store = new Vuex.Store({
         getTopoModelInCC ({ commit }, data) {
             return axios.get(data.url, { baseURL: '/' }).then(response => response.data)
         },
+        // 查询业务在 CMDB 的动态分组
+        getDynamicGroup ({ commit }, data) {
+            return axios.get(data.url, { baseURL: '/', start: data.start, limit: 200 }).then(response => response.data)
+        },
         // <--- ip 选择器接口 end
         // 开区资源选择器接口 start --->
+        getResourceConfig ({ commit }, data) {
+            return axios.get(data.url).then(response => response.data)
+        },
+        saveResourceScheme ({ commit }, params) {
+            const { url, data } = params
+            return axios.patch(url, data).then(response => response.data)
+        },
+        createResourceScheme ({ commit }, params) {
+            const { url, data } = params
+            return axios.post(url, data).then(response => response.data)
+        },
         getCCSearchTopoSet ({ commit }, data) {
             return axios.get(data.url, { baseURL: '/' }).then(response => response.data)
         },

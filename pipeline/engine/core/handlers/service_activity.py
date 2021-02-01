@@ -23,7 +23,7 @@ from pipeline.engine.models import Data, ScheduleService, Status
 
 from .base import FlowElementHandler
 
-logger = logging.getLogger("celery")
+logger = logging.getLogger("celery_and_engine_component")
 
 __all__ = ["ServiceActivityHandler"]
 
@@ -34,6 +34,7 @@ class ServiceActivityHandler(FlowElementHandler):
         return ServiceActivity
 
     def handle(self, process, element, status):
+        pre_execute_success = False
         success = False
         exception_occurred = False
         monitoring = False
@@ -73,12 +74,15 @@ class ServiceActivityHandler(FlowElementHandler):
             id=element.id, root_pipeline_id=root_pipeline.id,
         )
 
-        # execute service
+        # pre_process inputs and execute service
         try:
-            success = element.execute(root_pipeline.data)
+            pre_execute_success = element.execute_pre_process(root_pipeline.data)
+            if pre_execute_success:
+                success = element.execute(root_pipeline.data)
         except Exception:
             if element.error_ignorable:
                 # ignore exception
+                pre_execute_success = True
                 success = True
                 exception_occurred = True
                 element.ignore_error()
@@ -87,7 +91,7 @@ class ServiceActivityHandler(FlowElementHandler):
             logger.error(ex_data)
 
         # process result
-        if success is False:
+        if pre_execute_success is False or success is False:
             ex_data = element.data.get_one_of_outputs("ex_data")
             Status.objects.fail(element, ex_data)
             try:
@@ -117,15 +121,20 @@ class ServiceActivityHandler(FlowElementHandler):
             if element.need_schedule() and not exception_occurred and not is_error_ignored:
                 # write data before schedule
                 Data.objects.write_node_data(element)
-                # set schedule
-                ScheduleService.objects.set_schedule(
-                    element.id,
-                    service_act=element.shell(),
-                    process_id=process.id,
-                    version=version,
-                    parent_data=process.top_pipeline.data,
+                return self.HandleResult(
+                    next_node=None,
+                    should_return=True,
+                    should_sleep=True,
+                    after_sleep_call=ScheduleService.objects.set_schedule,
+                    args=[],
+                    kwargs=dict(
+                        activity_id=element.id,
+                        service_act=element.shell(),
+                        process_id=process.id,
+                        version=version,
+                        parent_data=process.top_pipeline.data,
+                    ),
                 )
-                return self.HandleResult(next_node=None, should_return=True, should_sleep=True)
 
             process.top_pipeline.context.extract_output(element)
             error_ignorable = not element.get_result_bit()

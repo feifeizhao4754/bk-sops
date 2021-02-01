@@ -56,11 +56,12 @@
                     :data="templateList"
                     :pagination="pagination"
                     v-bkloading="{ isLoading: listLoading, opacity: 1 }"
+                    @sort-change="handleSortChange"
                     @page-change="onPageChange"
-                    @page-limit-change="handlePageLimitChange">
+                    @page-limit-change="onPageLimitChange">
                     <bk-table-column label="ID" prop="id" width="100"></bk-table-column>
-                    <bk-table-column :label="$t('流程名称')">
-                        <template slot-scope="props">
+                    <bk-table-column :label="$t('流程名称')" min-width="400">
+                        <div slot-scope="props" class="name-column">
                             <template>
                                 <a
                                     v-if="!hasPermission(['flow_view'], props.row.auth_actions)"
@@ -77,11 +78,21 @@
                                     {{props.row.name}}
                                 </router-link>
                             </template>
-                        </template>
+                            <template v-if="props.row.template_labels && props.row.template_labels.length > 0">
+                                <span
+                                    v-for="label in props.row.template_labels"
+                                    class="label-name"
+                                    :key="label.id"
+                                    :style="{ background: label.color }"
+                                    @click="onSearchLabel(label.label_id)">
+                                    {{ label.name }}
+                                </span>
+                            </template>
+                        </div>
                     </bk-table-column>
                     <bk-table-column :label="$t('分类')" prop="category_name" width="180"></bk-table-column>
-                    <bk-table-column :label="$t('创建时间')" prop="create_time" width="200"></bk-table-column>
-                    <bk-table-column :label="$t('更新时间')" prop="edit_time" width="200"></bk-table-column>
+                    <bk-table-column :label="$t('创建时间')" prop="create_time" sortable="custom" width="200"></bk-table-column>
+                    <bk-table-column :label="$t('更新时间')" prop="edit_time" sortable="custom" width="200"></bk-table-column>
                     <bk-table-column
                         width="160"
                         :label="$t('子流程更新')">
@@ -267,6 +278,15 @@
             label: i18n.t('创建人'),
             placeholder: i18n.t('请输入创建人'),
             value: ''
+        },
+        {
+            type: 'select',
+            key: 'label_ids',
+            multiple: true,
+            label: i18n.t('标签'),
+            placeholder: i18n.t('选择标签'),
+            list: [],
+            value: []
         }
     ]
     export default {
@@ -282,9 +302,20 @@
         mixins: [permission],
         props: {
             project_id: [String, Number],
-            page: [String, Number]
+            page: [String, Number],
+            limit: [String, Number]
         },
         data () {
+            const {
+                page = 1,
+                limit = 15,
+                category = '',
+                start_time = '',
+                end_time = '',
+                subprocessUpdateVal = '',
+                creator = '',
+                keyword = ''
+            } = this.$route.query
             return {
                 listLoading: true,
                 projectInfoLoading: true, // 模板分类信息 loading
@@ -307,22 +338,23 @@
                 isHasSubprocess: undefined,
                 deleteTemplateName: '',
                 requestData: {
-                    category: '',
-                    queryTime: [],
-                    subprocessUpdateVal: '',
-                    creator: '',
-                    flowName: ''
+                    category,
+                    creator,
+                    subprocessUpdateVal: subprocessUpdateVal !== '' ? Number(subprocessUpdateVal) : '',
+                    queryTime: (start_time && end_time) ? [start_time, end_time] : [],
+                    flowName: keyword
                 },
                 totalPage: 1,
                 pagination: {
-                    current: Number(this.page) || 1,
+                    current: Number(page),
                     count: 0,
-                    limit: 15,
-                    'limit-list': [15, 20, 30]
+                    limit: Number(limit),
+                    'limit-list': [15, 30, 50, 100]
                 },
                 collectingId: '', // 正在被收藏/取消收藏的模板id
                 collectListLoading: false,
-                collectionList: []
+                collectionList: [],
+                ordering: null // 排序参数
             }
         },
         computed: {
@@ -350,6 +382,7 @@
         created () {
             this.getTemplateList()
             this.getProjectBaseInfo()
+            this.getProjectLabelList()
             this.getExpiredSubflowData()
             this.getCollectList()
             this.onSearchInput = tools.debounce(this.searchInputhandler, 500)
@@ -377,6 +410,9 @@
                 'templateExport',
                 'getExpiredSubProcess'
             ]),
+            ...mapActions('project/', [
+                'getProjectLabelsWithDefault'
+            ]),
             ...mapMutations('template/', [
                 'setProjectBaseInfo'
             ]),
@@ -386,7 +422,7 @@
             async getTemplateList () {
                 this.listLoading = true
                 try {
-                    const { subprocessUpdateVal, creator, category, queryTime, flowName } = this.requestData
+                    const { subprocessUpdateVal, creator, category, queryTime, flowName, label_ids } = this.requestData
 
                     /**
                      * 无子流程 has_subprocess=false
@@ -403,8 +439,10 @@
                         pipeline_template__name__icontains: flowName || undefined,
                         pipeline_template__creator__contains: creator || undefined,
                         category: category || undefined,
+                        label_ids: label_ids && label_ids.length ? label_ids.join(',') : undefined,
                         subprocess_has_update,
-                        has_subprocess
+                        has_subprocess,
+                        order_by: this.ordering || undefined
                     }
 
                     if (queryTime[0] && queryTime[1]) {
@@ -465,6 +503,18 @@
                     this.collectListLoading = false
                 }
             },
+            async getProjectLabelList () {
+                try {
+                    this.templateLabelLoading = true
+                    const res = await this.getProjectLabelsWithDefault(this.project_id)
+                    this.searchForm[4].list = res.data.map(item => Object.assign({}, item, { value: item.id }))
+                } catch (error) {
+                    errorHandler(error, this)
+                } finally {
+                    this.templateLabelLoading = false
+                    this.searchForm[4].loading = false
+                }
+            },
             checkCreatePermission () {
                 if (!this.hasPermission(['flow_create'], this.authActions)) {
                     const resourceData = {
@@ -482,8 +532,9 @@
                 }
             },
             onSearchFormSubmit (data) {
-                this.requestData = data
+                this.requestData = Object.assign({}, this.requestData, data)
                 this.pagination.current = 1
+                this.updateUrl()
                 this.getTemplateList()
             },
             searchInputhandler (data) {
@@ -532,10 +583,50 @@
                 this.deleteTemplateName = template.name
                 this.isDeleteDialogShow = true
             },
+            handleSortChange ({ prop, order }) {
+                const params = 'pipeline_template__' + prop
+                if (order === 'ascending') {
+                    this.ordering = params
+                } else if (order === 'descending') {
+                    this.ordering = '-' + params
+                } else {
+                    this.ordering = ''
+                }
+                this.pagination.current = 1
+                this.getTemplateList()
+            },
             onPageChange (page) {
                 this.pagination.current = page
-                this.$router.push({ name: 'process', query: { page: page } })
+                this.updateUrl()
                 this.getTemplateList()
+            },
+            onPageLimitChange (val) {
+                this.pagination.limit = val
+                this.pagination.current = 1
+                this.updateUrl()
+                this.getTemplateList()
+            },
+            updateUrl () {
+                const { current, limit } = this.pagination
+                const { category, queryTime, subprocessUpdateVal, creator, flowName } = this.requestData
+                const filterObj = {
+                    limit,
+                    category,
+                    subprocessUpdateVal,
+                    creator,
+                    page: current,
+                    start_time: queryTime[0],
+                    end_time: queryTime[1],
+                    keyword: flowName
+                }
+                const query = {}
+                Object.keys(filterObj).forEach(key => {
+                    const val = filterObj[key]
+                    if (val || val === 0 || val === false) {
+                        query[key] = val
+                    }
+                })
+                this.$router.push({ name: 'process', params: { project_id: this.project_id }, query })
             },
             /**
              * 单个模板操作项点击时校验
@@ -610,16 +701,18 @@
                 }
                 return item.subprocess_has_update ? i18n.t('待更新') : i18n.t('否')
             },
-            handlePageLimitChange (val) {
-                this.pagination.limit = val
-                this.pagination.current = 1
-                this.getTemplateList()
-            },
             // 标题提示信息，查看子流程更新
             handleSubflowFilter () {
                 const searchComp = this.$refs.advanceSearch
                 searchComp.onAdvanceOpen(true)
                 searchComp.onChangeFormItem(1, searchForm[2].key)
+                searchComp.submit()
+            },
+            // 筛选包含当前标签的模板
+            onSearchLabel (id) {
+                const searchComp = this.$refs.advanceSearch
+                searchComp.onAdvanceOpen(true)
+                searchComp.onChangeFormItem([id], searchForm[4].key)
                 searchComp.submit()
             },
             // 添加/取消收藏模板
@@ -714,8 +807,24 @@
 }
 .template-table-content {
     background: #ffffff;
+    .name-column {
+        display: table-cell;
+    }
     a.template-name {
         color: $blueDefault;
+    }
+    .label-name {
+        display: inline-block;
+        margin-left: 4px;
+        padding: 2px 6px;
+        font-size: 12px;
+        line-height: 1;
+        color: #63656e;
+        border-radius: 8px;
+        cursor: pointer;
+        &:first-child {
+            margin-left: 6px;
+        }
     }
     .template-operation > .text-permission-disable {
         padding: 5px;

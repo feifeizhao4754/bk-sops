@@ -65,7 +65,7 @@
                             </tr>
                         </template>
                         <tr v-else>
-                            <td class="static-ip-empty" colspan="4">{{i18n.noData}}</td>
+                            <td class="static-ip-empty" colspan="4"><no-data></no-data></td>
                         </tr>
                     </tbody>
                 </table>
@@ -115,6 +115,7 @@
     import '@/utils/i18n.js' // ip选择器兼容标准运维国际化
 
     import IpSearchInput from './IpSearchInput.vue'
+    import NoData from '@/components/common/base/NoData.vue'
 
     const i18n = {
         add: gettext('添加'),
@@ -126,7 +127,7 @@
         noData: gettext('无数据'),
         normal: gettext('正常'),
         cancel: gettext('取消'),
-        manualPlaceholder: gettext('请输入IP，多个以逗号隔开'),
+        manualPlaceholder: gettext('请输入IP，多个以逗号或者换行符隔开'),
         ipInvalid: gettext('IP地址不合法，'),
         ipNotExist: gettext('IP地址不存在，'),
         viewDetail: gettext('查看详情')
@@ -135,7 +136,8 @@
     export default {
         name: 'StaticIpAddingPanel',
         components: {
-            IpSearchInput
+            IpSearchInput,
+            NoData
         },
         props: {
             staticIpList: Array,

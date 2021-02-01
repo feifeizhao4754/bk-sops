@@ -186,8 +186,10 @@ class StaffGroupSelector(LazyVariable):
     form = "%svariables/staff_group_multi_selector.js" % settings.STATIC_URL
 
     def get_value(self):
-        operator = self.pipeline_data.get("executor", "")
-        bk_biz_id = int(self.pipeline_data.get("biz_cc_id", 0))
+        if "executor" not in self.pipeline_data or "biz_cc_id" not in self.pipeline_data:
+            return ""
+        operator = self.pipeline_data["executor"]
+        bk_biz_id = int(self.pipeline_data["biz_cc_id"])
         supplier_account = supplier_account_for_business(bk_biz_id)
         client = get_client_by_user(operator)
 
@@ -196,7 +198,9 @@ class StaffGroupSelector(LazyVariable):
         cc_staff_group = list(set(self.value).difference(set(staff_group_id_list)))
 
         # 获取项目的自定义人员分组人员
-        staff_names_list = StaffGroupSet.objects.filter(id__in=staff_group_id_list).values_list("members", flat=True)
+        staff_names_list = StaffGroupSet.objects.filter(id__in=staff_group_id_list, is_deleted=False).values_list(
+            "members", flat=True
+        )
 
         staff_names_str = ",".join(staff_names_list)
         staff_names_list_clear = list(set(staff_names_str.split(",")))

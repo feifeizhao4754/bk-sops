@@ -10,8 +10,8 @@
 * specific language governing permissions and limitations under the License.
 */
 <template>
-    <div class="template-page" v-bkloading="{ isLoading: templateDataLoading }">
-        <div v-if="!templateDataLoading" class="pipeline-canvas-wrapper">
+    <div class="template-page" v-bkloading="{ isLoading: templateDataLoading || singleAtomListLoading || subAtomListLoading }">
+        <div v-if="!templateDataLoading && !singleAtomListLoading && !subAtomListLoading" class="pipeline-canvas-wrapper">
             <TemplateHeader
                 ref="templateHeader"
                 :name="name"
@@ -42,8 +42,6 @@
             <TemplateCanvas
                 ref="templateCanvas"
                 class="template-canvas"
-                :single-atom-list-loading="singleAtomListLoading"
-                :sub-atom-list-loading="subAtomListLoading"
                 :atom-type-list="atomTypeList"
                 :name="name"
                 :type="type"
@@ -107,6 +105,23 @@
                 @cancel="onLeaveCancel">
                 <div class="leave-tips">{{ $t('系统不会保存您所做的更改，确认离开？') }}</div>
             </bk-dialog>
+            <bk-dialog
+                width="400"
+                ext-cls="common-dialog"
+                :theme="'primary'"
+                :mask-close="false"
+                :show-footer="false"
+                :value="multipleTabDialogShow"
+                @cancel="multipleTabDialogShow = false">
+                <div class="multiple-tab-dialog-content">
+                    <h3>{{ $t('确定保存修改的内容？') }}</h3>
+                    <p><i class="bk-icon icon-exclamation-circle">{{ $t('当前流程模板在浏览器多个标签页打开') }}</i></p>
+                    <div class="action-wrapper">
+                        <bk-button theme="primary" @click="onMutilpleTabConfirm">{{ $t('确定') }}</bk-button>
+                        <bk-button theme="default" @click="multipleTabDialogShow = false">{{ $t('取消') }}</bk-button>
+                    </div>
+                </div>
+            </bk-dialog>
         </div>
     </div>
 </template>
@@ -117,6 +132,7 @@
     import moment from 'moment-timezone'
     import { uuid } from '@/utils/uuid.js'
     import tools from '@/utils/tools.js'
+    import bus from '@/utils/bus.js'
     import atomFilter from '@/utils/atomFilter.js'
     import { errorHandler } from '@/utils/errorHandler.js'
     import validatePipeline from '@/utils/validatePipeline.js'
@@ -127,6 +143,7 @@
     import ConditionEdit from './ConditionEdit.vue'
     import SubflowUpdateTips from './SubflowUpdateTips.vue'
     import tplSnapshoot from '@/utils/tplSnapshoot.js'
+    import tplTabCount from '@/utils/tplTabCount.js'
     import Guide from '@/utils/guide.js'
     import permission from '@/mixins/permission.js'
     import { STRING_LENGTH } from '@/constants/index.js'
@@ -176,6 +193,8 @@
                 tplUUID: uuid(),
                 tplActions: [],
                 conditionData: {},
+                multipleTabDialogShow: false,
+                tplEditingTabCount: 0, // 正在编辑的模板在同一浏览器打开的数目
                 nodeGuideConfig: {
                     el: '',
                     width: 150,
@@ -291,12 +310,20 @@
         mounted () {
             this.getProjectBaseInfo()
             this.openSnapshootTimer()
-            window.onbeforeunload = function () {
-                return i18n.t('系统不会保存您所做的更改，确认离开？')
+            window.addEventListener('beforeunload', this.handleBeforeUnload, false)
+            window.addEventListener('unload', this.handleUnload.bind(this), false)
+            if (this.type === 'edit') {
+                const data = this.getTplTabData()
+                tplTabCount.setTab(data, 'add')
             }
         },
         beforeDestroy () {
-            window.onbeforeunload = null
+            if (this.type === 'edit') {
+                const data = this.getTplTabData()
+                tplTabCount.setTab(data, 'del')
+            }
+            window.removeEventListener('beforeunload', this.handleBeforeUnload, false)
+            window.removeEventListener('unload', this.handleUnload, false)
             this.resetTemplateData()
             this.hideGuideTips()
         },
@@ -455,7 +482,7 @@
                 this.atomConfigLoading = true
                 try {
                     await this.loadAtomConfig({ atom: code, version, project_id })
-                    this.addSingleAtomActivities(location, $.atoms[code])
+                    this.addSingleAtomActivities(location, this.atomConfig[code][version])
                 } catch (e) {
                     errorHandler(e, this)
                 } finally {
@@ -539,6 +566,14 @@
                             url.name = 'commonTemplatePanel'
                         }
                         this.$router.push(url)
+
+                        // 新创建的流程模板需要增加本地浏览器计数信息
+                        const tabQuerydata = {
+                            user: this.username,
+                            id: this.common ? 'common' : this.project_id,
+                            tpl: data.template_id
+                        }
+                        tplTabCount.setTab(tabQuerydata, 'add')
                     }
                     if (this.createTaskSaving) {
                         this.goToTaskUrl(data.template_id)
@@ -701,11 +736,25 @@
              */
             checkAtomData (config, formData) {
                 let isValid = true
+                const formObj = {
+                    // tag 组件的内置方法，未渲染 vue 组件时，在外层提供
+                    get_tag_value: function (path, data = formData) {
+                        const tag = path[0]
+                        if (!(tag in data)) {
+                            throw new Error(`表单值中不存在 ${tag} 属性`)
+                        }
+                        if (path.length === 1) {
+                            return tools.deepClone(data[tag])
+                        } else {
+                            return this.get_tag_value(path.slice(1), data[tag])
+                        }
+                    }
+                }
                 config.forEach(item => {
                     const { tag_code, type, attrs } = item
                     const value = formData[tag_code]
                     if (type === 'combine') {
-                        if (!this.checkAtomData(attrs.children, value)) {
+                        if (typeof value === 'object' && !this.checkAtomData(attrs.children, value)) { // 勾选为全局变量的 combine 不校验 value
                             isValid = false
                         }
                     } else {
@@ -724,7 +773,7 @@
                                 }
                                 if (item.type === 'custom') {
                                     if (!/^\${[^${}]+}$/.test(value)) { // '${xxx}'格式的值不校验
-                                        const validateInfo = item.args.call(this, value, formData)
+                                        const validateInfo = item.args.call(formObj, value, formData)
                                         if (!validateInfo.result) {
                                             isValid = false
                                         }
@@ -801,7 +850,7 @@
                         start: START_POSITION
                     })
                     if (res.result) {
-                        this.onCreateSnapshoot()
+                        this.onCreateSnapshoot('isFormatPosition')
                         this.$refs.templateCanvas.removeAllConnector()
                         this.setPipelineTree(res.data.pipeline_tree)
                         this.$nextTick(() => {
@@ -923,7 +972,11 @@
                 }
                 this.saveAndCreate = saveAndCreate
                 this.pid = pid
-                this.checkBasicProperty() // 基础属性是否合法
+                if (this.type === 'edit' && tplTabCount.getCount(this.getTplTabData()) > 1) {
+                    this.multipleTabDialogShow = true
+                } else {
+                    this.checkBasicProperty() // 基础属性是否合法
+                }
             },
             // 校验基础属性
             checkBasicProperty () {
@@ -970,6 +1023,7 @@
                 this.allowLeave = false
                 this.leaveToPath = ''
                 this.isLeaveDialogShow = false
+                bus.$emit('resetProjectChange', this.project_id)
             },
             // 修改line和location
             onReplaceLineAndLocation (data) {
@@ -1071,13 +1125,15 @@
                 })
             },
             // 本地快照面板新增快照
-            onCreateSnapshoot (message = i18n.t('新增流程本地快照成功')) {
+            onCreateSnapshoot (type) {
                 this.snapshootTimer && clearTimeout(this.snapshootTimer)
                 this.setTplSnapshoot()
-                this.$bkMessage({
-                    message,
-                    theme: 'success'
-                })
+                if (!type) {
+                    this.$bkMessage({
+                        message: i18n.t('新增流程本地快照成功'),
+                        theme: 'success'
+                    })
+                }
                 this.snapshoots = this.getTplSnapshoots()
                 this.openSnapshootTimer()
             },
@@ -1144,6 +1200,28 @@
             saveTempSnapshoot (templateId) {
                 const id = this.common ? 'common' : this.project_id
                 tplSnapshoot.replaceSnapshootTplKey(this.username, id, this.tplUUID, templateId)
+            },
+            handleBeforeUnload (e) {
+                e.returnValue = i18n.t('系统不会保存您所做的更改，确认离开？')
+                return i18n.t('系统不会保存您所做的更改，确认离开？')
+            },
+            handleUnload (queryData, type) {
+                if (this.type === 'edit') {
+                    const data = this.getTplTabData()
+                    tplTabCount.setTab(data, 'del')
+                }
+            },
+            // 多 tab 打开同一流程模板
+            onMutilpleTabConfirm () {
+                this.multipleTabDialogShow = false
+                this.checkBasicProperty()
+            },
+            getTplTabData () {
+                return {
+                    user: this.username,
+                    id: this.common ? 'common' : this.project_id,
+                    tpl: this.template_id
+                }
             }
         },
         beforeRouteLeave (to, from, next) { // leave or reload page
@@ -1170,7 +1248,7 @@
     .update-tips {
         position: absolute;
         top: 76px;
-        left: 500px;
+        left: 495px;
         min-height: 40px;
         overflow: hidden;
         z-index: 4;
@@ -1194,5 +1272,22 @@
     }
     .leave-tips {
         padding: 30px;
+    }
+    /deep/ .multiple-tab-dialog-content {
+        padding: 40px 0;
+        text-align: center;
+        h3 {
+            margin: 0;
+            font-size: 24px;
+            font-weight: normal;
+        }
+        p {
+            margin: 6px 0 20px;
+            font-size: 14px;
+            color: #ff9c01;
+        }
+        .action-wrapper .bk-button {
+            margin-right: 6px;
+        }
     }
 </style>

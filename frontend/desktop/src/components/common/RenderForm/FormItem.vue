@@ -271,6 +271,7 @@
                     case 'datetime':
                     case 'password':
                     case 'memberSelector':
+                    case 'logDisplay':
                     case 'code_editor':
                     case 'section':
                         valueFormat = {
@@ -327,6 +328,7 @@
                                 selectors: [],
                                 ip: [],
                                 topo: [],
+                                group: [],
                                 filters: [],
                                 excludes: []
                             }
@@ -343,7 +345,22 @@
                                     module_detail: []
                                 },
                                 data: [],
-                                separetor: ','
+                                separator: ','
+                            }
+                        }
+                        break
+                    case 'host_allocation':
+                        valueFormat = {
+                            type: 'Object',
+                            value: {
+                                config: {
+                                    host_count: 0,
+                                    host_screen_value: '',
+                                    host_resources: [],
+                                    host_filter_detail: []
+                                },
+                                data: [],
+                                separator: ','
                             }
                         }
                         break

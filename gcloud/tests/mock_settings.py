@@ -41,6 +41,11 @@ TASKINSTANCE_OBJECTS_CALLBACK = "gcloud.taskflow3.models.TaskFlowInstance.object
 TASKINSTANCE_CALLBACK = "gcloud.taskflow3.models.TaskFlowInstance.callback"
 TASKINSTANCE_HAS_NODE = "gcloud.taskflow3.models.TaskFlowInstance.has_node"
 
+TASKFLOW_MODEL_PIPELINE_API_GET_STATES_TREE = "gcloud.taskflow3.models.pipeline_api.get_status_tree"
+TASKFLOW_MODEL_TASK_TEMPLATE = "gcloud.taskflow3.models.TaskTemplate"
+
+TASKFLOW_CONTEXT_PROJECT_CONFIG = "gcloud.taskflow3.context.ProjectConfig"
+
 PERIODIC_TASK_FILTER = "gcloud.periodictask.models.PeriodicTask.objects.filter"
 PERIODIC_TASK_GET = "gcloud.periodictask.models.PeriodicTask.objects.get"
 PERIODIC_TASK_CREATE = "gcloud.periodictask.models.PeriodicTask.objects.create"
@@ -61,9 +66,14 @@ APIGW_GET_PLUGIN_LIST_COMPONENT_MODEL_FILTER = "gcloud.apigw.views.get_plugin_li
 APIGW_GET_PLUGIN_LIST_COMPONENT_LIBRARY_GET_COMPONENT_CLS = (
     "gcloud.apigw.views.get_plugin_list.ComponentLibrary.get_component_class"  # noqa
 )
+APIGW_GET_PLUGIN_DETAIL_COMPONENT_MODEL_EXCLUDE = "gcloud.apigw.views.get_plugin_detail.ComponentModel.objects.exclude"
+APIGW_GET_USER_PROJECT_LIST_GET_USER_PROJECT_LIST = "gcloud.apigw.views.get_user_project_list.get_user_projects"
 APIGW_GET_USER_PROJECT_LIST_GET_USER_BUSINESS_LIST = "gcloud.apigw.views.get_user_project_list.get_user_business_list"
 APIGW_GET_USER_PROJECT_DETAIL_GET_BUSINESS_DETAIL = "gcloud.apigw.views.get_user_project_detail.get_business_detail"
 APIGW_PREVIEW_TASK_TREE_PREVIEW_TEMPLATE_TREE = "gcloud.apigw.views.preview_task_tree.preview_template_tree"
+APIGW_PREVIEW_COMMON_TASK_TREE_PREVIEW_TEMPLATE_TREE = (
+    "gcloud.apigw.views.preview_common_task_tree.preview_template_tree"
+)
 APIGW_DECORATOR_CHECK_WHITE_LIST = "gcloud.apigw.decorators.check_white_apps"
 APIGW_DECORATOR_GET_USER_MODEL = "gcloud.apigw.decorators.get_user_model"
 APIGW_DECORATOR_BUSINESS_EXIST = "gcloud.apigw.decorators.business_exist"

@@ -169,7 +169,7 @@
                     current: 1,
                     count: 0,
                     limit: 15,
-                    'limit-list': [15, 20, 30]
+                    'limit-list': [15, 30, 50, 100]
                 },
                 statusList: [
                     { 'value': 'nonExecution', 'name': i18n.t('未执行') },
@@ -305,7 +305,7 @@
                 this.applyForPermission(['task_view'], task.auth_actions, resourceData)
             },
             onSearchFormSubmit (data) {
-                this.requestData = data
+                this.requestData = Object.assign({}, this.requestData, data)
                 this.pagination.current = 1
                 this.getAppmakerList()
             },

@@ -24,27 +24,32 @@
                 :multiple-limit="multiple_limit"
                 :multiple="multiple"
                 :no-data-text="empty_text"
-                :placeholder="placeholder">
+                :filter-method="filterMethod"
+                :placeholder="placeholder"
+                @visible-change="onVisibleChange">
+                <template v-if="showRightBtn" slot="prefix">
+                    <i class="right-btn" :class="rightBtnIcon" @click="onRightBtnClick"></i>
+                </template>
                 <template v-if="!hasGroup">
                     <el-option
-                        v-for="item in items"
-                        v-loading="loading"
-                        :key="item.text"
+                        v-for="item in options"
+                        :key="item.value"
                         :label="item.text"
                         :value="item.value">
+                        <span class="option-item">{{ item.text }}</span>
                     </el-option>
                 </template>
                 <template v-else>
                     <el-option-group
-                        v-for="group in items"
-                        :key="group.text"
+                        v-for="group in options"
+                        :key="group.value"
                         :label="group.text">
                         <el-option
                             v-for="item in group.options"
-                            v-loading="loading"
-                            :key="item.text"
+                            :key="item.value"
                             :label="item.text"
                             :value="item.value">
+                            <span class="option-item">{{ item.text }}</span>
                         </el-option>
                     </el-option-group>
                 </template>
@@ -69,20 +74,7 @@
             type: Array,
             required: false,
             default () {
-                return [
-                    {
-                        text: gettext('选项1'),
-                        value: 'value1'
-                    },
-                    {
-                        text: gettext('选项2'),
-                        value: 'value2'
-                    },
-                    {
-                        text: gettext('选项3'),
-                        value: 'value3'
-                    }
-                ]
+                return []
             },
             desc: "array like [{text: '', value: ''}, {text: '', value: ''}]"
         },
@@ -148,6 +140,24 @@
             default: '',
             desc: 'placeholder'
         },
+        showRightBtn: {
+            type: Boolean,
+            required: false,
+            default: false,
+            desc: 'whether to display the button on the right of the selection box'
+        },
+        rightBtnIcon: {
+            type: String,
+            required: false,
+            default: 'bk-icon icon-chain',
+            desc: 'button icon to the right of the selection box'
+        },
+        rightBtnCb: {
+            type: Function,
+            required: false,
+            default: null,
+            desc: 'Button to the right of the selection box to click on the event callback function'
+        },
         empty_text: {
             type: String,
             required: false,
@@ -160,6 +170,7 @@
         mixins: [getFormMixins(attrs)],
         data () {
             return {
+                options: this.$attrs.items ? this.$attrs.items.slice(0) : [],
                 loading: false,
                 loading_text: gettext('加载中')
             }
@@ -170,7 +181,9 @@
                     return this.value
                 },
                 set (val) {
-                    this.updateForm(val)
+                    if (!this.hook) {
+                        this.updateForm(val)
+                    }
                 }
             },
             viewValue () {
@@ -197,6 +210,11 @@
                 }
             }
         },
+        watch: {
+            items (val) {
+                this.options = val.slice(0)
+            }
+        },
         mounted () {
             this.remoteMethod()
         },
@@ -210,6 +228,16 @@
                     }
                 })
                 return label
+            },
+            // 自定义搜索，支持以','符号分隔的多条数据搜索
+            filterMethod (val) {
+                if (!val) {
+                    this.options = this.items.slice(0)
+                    return
+                }
+
+                const inputVal = val.split(',')
+                this.options = this.items.filter(option => inputVal.some(i => option.text.toLowerCase().includes(i.toLowerCase())))
             },
             set_loading (loading) {
                 this.loading = loading
@@ -235,28 +263,62 @@
                         self.loading = false
                     }
                 })
+            },
+            onRightBtnClick () {
+                typeof this.rightBtnCb === 'function' && this.rightBtnCb()
+            },
+            onVisibleChange (val) {
+                if (!val) { // 下拉框隐藏后，还原搜索过滤掉的选项
+                    this.options = this.items.slice(0)
+                }
             }
         }
     }
 </script>
 <style lang="scss" scoped>
     .el-select {
+        position: relative;
         width: 100%;
         /deep/ .el-input__inner {
             padding-left: 10px;
+            padding-right: 60px;
             height: 32px;
             line-height: 32px;
             font-size: 12px;
         }
+        /deep/.el-input__prefix {
+            left: auto;
+            right: 34px;
+        }
+        /deep/.el-tag.el-tag--info.el-tag--small.el-tag--light { // 解决已选多选项选项过长不换行问题
+            height: auto;
+            .el-select__tags-text {
+                white-space: normal;
+                word-break: break-all;
+                height: auto;
+            }
+        }
+        .right-btn {
+            display: flex;
+            align-items: center;
+            height: 100%;
+            color: #63656e;
+            cursor: pointer;
+            &:hover {
+                color: #3a84ff;
+            }
+        }
     }
 </style>
 <style lang="scss">
-    .tag-component-popper.el-select-dropdown {
-        max-width: 500px;
-        .el-select-dropdown__item {
-            white-space: normal;
-            word-break: break-all;
-            height: auto;
+    .tag-component-popper {
+        .el-select-dropdown {
+            max-width: 500px;
+            .el-select-dropdown__item { // 解决选项过长问题
+                white-space: normal;
+                word-break: break-all;
+                height: auto;
+            }
         }
     }
 </style>

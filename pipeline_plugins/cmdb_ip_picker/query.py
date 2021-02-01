@@ -17,6 +17,7 @@ import ujson as json
 from django.http import JsonResponse
 from django.utils.translation import ugettext_lazy as _
 
+from api.utils.request import batch_request
 from iam.contrib.http import HTTP_AUTH_FORBIDDEN_CODE
 from iam.exceptions import RawAuthFailedException
 
@@ -60,7 +61,8 @@ def cmdb_search_host(request, bk_biz_id, bk_supplier_account="", bk_supplier_id=
                 set、module、cloud、agent等信息
     @return:
     """
-    fields = json.loads(request.GET.get("fields", "[]"))
+    default_host_fields = ["bk_host_id", "bk_host_name", "bk_cloud_id", "bk_host_innerip"]
+    fields = set(default_host_fields + json.loads(request.GET.get("fields", "[]")))
     client = get_client_by_user(request.user.username)
 
     topo_modules_id = set()
@@ -83,17 +85,13 @@ def cmdb_search_host(request, bk_biz_id, bk_supplier_account="", bk_supplier_id=
             topo_modules += get_modules_of_bk_obj(obj)
         topo_modules_id = set(get_modules_id(topo_modules))
 
-    default_host_fields = ["bk_host_id", "bk_host_name", "bk_cloud_id", "bk_host_innerip"]
-
     cloud_area_result = client.cc.search_cloud_area({})
     if not cloud_area_result["result"]:
         message = handle_api_error(_("配置平台(CMDB)"), "cc.search_cloud_area", {}, cloud_area_result)
         result = {"result": False, "code": ERROR_CODES.API_GSE_ERROR, "message": message}
         return JsonResponse(result)
 
-    raw_host_info_list = cmdb.get_business_host_topo(
-        request.user.username, bk_biz_id, bk_supplier_account, default_host_fields
-    )
+    raw_host_info_list = cmdb.get_business_host_topo(request.user.username, bk_biz_id, bk_supplier_account, fields)
 
     # map cloud_area_id to cloud_area
     cloud_area_dict = {}
@@ -113,7 +111,6 @@ def cmdb_search_host(request, bk_biz_id, bk_supplier_account="", bk_supplier_id=
     data = []
 
     if host_info_list:
-        fields = set(default_host_fields + fields)
         for host in host_info_list:
             host_detail = {field: host["host"][field] for field in fields if field in host["host"]}
             host_detail["bk_host_innerip"] = format_sundry_ip(host_detail["bk_host_innerip"])
@@ -132,7 +129,11 @@ def cmdb_search_host(request, bk_biz_id, bk_supplier_account="", bk_supplier_id=
             agent_kwargs = {
                 "bk_biz_id": bk_biz_id,
                 "bk_supplier_id": bk_supplier_id,
-                "hosts": [{"bk_cloud_id": host["bk_cloud_id"], "ip": host["bk_host_innerip"]} for host in data],
+                "hosts": [
+                    {"bk_cloud_id": host["bk_cloud_id"], "ip": host["bk_host_innerip"]}
+                    for host in data
+                    if host["bk_host_innerip"] != ""
+                ],
             }
             agent_result = client.gse.get_agent_status(agent_kwargs)
             if not agent_result["result"]:
@@ -179,3 +180,24 @@ def cmdb_get_mainline_object_topo(request, bk_biz_id, bk_supplier_account=""):
             bk_obj["bk_obj_name"] = "IP"
     result = {"result": cc_result["result"], "code": cc_result["code"], "data": cc_result["data"]}
     return JsonResponse(result)
+
+
+def cmdb_search_dynamic_group(request, bk_biz_id, bk_supplier_account=""):
+    """
+    @summary: 查询动态分组列表
+    @param request:
+    @param bk_biz_id:
+    @param bk_supplier_account:
+    @return:
+    """
+    client = get_client_by_user(request.user.username)
+    kwargs = {"bk_biz_id": bk_biz_id, "bk_supplier_account": bk_supplier_account}
+    result = batch_request(client.cc.search_dynamic_group, kwargs, limit=200)
+
+    dynamic_groups = []
+    for dynamic_group in result:
+        if dynamic_group["bk_obj_id"] == "host":
+            dynamic_groups.append(
+                {"id": dynamic_group["id"], "name": dynamic_group["name"], "create_user": dynamic_group["create_user"]}
+            )
+    return JsonResponse({"result": True, "data": {"count": len(dynamic_groups), "info": dynamic_groups}})

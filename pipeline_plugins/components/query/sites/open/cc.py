@@ -28,6 +28,7 @@ from pipeline_plugins.cmdb_ip_picker.query import (
     cmdb_search_host,
     cmdb_search_topo_tree,
     cmdb_get_mainline_object_topo,
+    cmdb_search_dynamic_group,
 )
 
 from gcloud.conf import settings
@@ -48,7 +49,8 @@ def cc_search_object_attribute(request, obj_id, biz_cc_id, supplier_account):
     @return:
     """
     client = get_client_by_user(request.user.username)
-    kwargs = {"bk_obj_id": obj_id, "bk_supplier_account": supplier_account}
+    include_not_editable = request.GET.get("all", False)
+    kwargs = {"bk_obj_id": obj_id, "bk_supplier_account": supplier_account, "bk_biz_id": int(biz_cc_id)}
     cc_result = client.cc.search_object_attribute(kwargs)
     if not cc_result["result"]:
         message = handle_api_error("cc", "cc.search_object_attribute", kwargs, cc_result)
@@ -58,7 +60,7 @@ def cc_search_object_attribute(request, obj_id, biz_cc_id, supplier_account):
 
     obj_property = []
     for item in cc_result["data"]:
-        if item["editable"]:
+        if include_not_editable or item["editable"]:
             obj_property.append({"value": item["bk_property_id"], "text": item["bk_property_name"]})
 
     return JsonResponse({"result": True, "data": obj_property})
@@ -72,7 +74,7 @@ def cc_search_object_attribute_all(request, obj_id, biz_cc_id, supplier_account)
     @return:
     """
     client = get_client_by_user(request.user.username)
-    kwargs = {"bk_obj_id": obj_id, "bk_supplier_account": supplier_account, "bk_biz_id": biz_cc_id}
+    kwargs = {"bk_obj_id": obj_id, "bk_supplier_account": supplier_account, "bk_biz_id": int(biz_cc_id)}
     cc_result = client.cc.search_object_attribute(kwargs)
     if not cc_result["result"]:
         message = handle_api_error("cc", "cc.search_object_attribute", kwargs, cc_result)
@@ -87,10 +89,30 @@ def cc_search_object_attribute_all(request, obj_id, biz_cc_id, supplier_account)
     return JsonResponse({"result": True, "data": obj_property})
 
 
+def cc_attribute_type_to_table_type(attribute):
+    result = {
+        "tag_code": attribute["bk_property_id"],
+        "type": "input",
+        "attrs": {"name": attribute["bk_property_name"], "editable": attribute["editable"]},
+    }
+    if attribute["bk_property_type"] == "int":
+        result["type"] = "int"
+    elif attribute["bk_property_type"] == "enum":
+        result["type"] = "select"
+        result["attrs"]["items"] = []
+        for item in attribute["option"]:
+            # 修改时会通过cc_format_prop_data获取对应的属性id，这里使用name字段方便展示
+            item_name = item["name"].strip()
+            if item["is_default"] is True:
+                result["attrs"]["default"] = item_name
+            result["attrs"]["items"].append({"text": item_name, "value": item_name})
+    return result
+
+
 @supplier_account_inject
 def cc_search_create_object_attribute(request, obj_id, biz_cc_id, supplier_account):
     client = get_client_by_user(request.user.username)
-    kwargs = {"bk_obj_id": obj_id, "bk_supplier_account": supplier_account}
+    kwargs = {"bk_obj_id": obj_id, "bk_supplier_account": supplier_account, "bk_biz_id": int(biz_cc_id)}
     cc_result = client.cc.search_object_attribute(kwargs)
     if not cc_result["result"]:
         message = handle_api_error("cc", "cc.search_object_attribute", kwargs, cc_result)
@@ -101,11 +123,7 @@ def cc_search_create_object_attribute(request, obj_id, biz_cc_id, supplier_accou
     obj_property = []
     for item in cc_result["data"]:
         if item["editable"]:
-            prop_dict = {
-                "tag_code": item["bk_property_id"],
-                "type": "input",
-                "attrs": {"name": item["bk_property_name"], "editable": "true"},
-            }
+            prop_dict = cc_attribute_type_to_table_type(item)
             # 集群/模块名称设置为必填项
             if item["bk_property_id"] in ["bk_set_name", "bk_module_name"]:
                 prop_dict["attrs"]["validation"] = [{"type": "required"}]
@@ -314,6 +332,11 @@ def cc_get_business(request):
 
 
 @supplier_account_inject
+def cc_search_dynamic_group(request, biz_cc_id, supplier_account):
+    return cmdb_search_dynamic_group(request, biz_cc_id, supplier_account)
+
+
+@supplier_account_inject
 def cc_list_set_template(request, biz_cc_id, supplier_account):
     client = get_client_by_user(request.user.username)
     kwargs = {"bk_biz_id": int(biz_cc_id), "bk_supplier_account": supplier_account}
@@ -321,20 +344,98 @@ def cc_list_set_template(request, biz_cc_id, supplier_account):
     set_template_result = client.cc.list_set_template(kwargs)
 
     if not set_template_result["result"]:
-        message = handle_api_error(
-            "cc", "cc.list_set_template", kwargs, set_template_result
-        )
+        message = handle_api_error("cc", "cc.list_set_template", kwargs, set_template_result)
         logger.error(message)
         result = {"result": False, "data": [], "message": message}
         return JsonResponse(result)
 
     template_list = []
-    for template_info in set_template_result['data']['info']:
-        template_list.append({"value": template_info.get('id'), "text": template_info.get('name')})
+    for template_info in set_template_result["data"]["info"]:
+        template_list.append({"value": template_info.get("id"), "text": template_info.get("name")})
     return JsonResponse({"result": True, "data": template_list})
 
 
+def cc_get_editable_module_attribute(request, biz_cc_id):
+    kwargs = {
+        "bk_biz_id": int(biz_cc_id),
+        "bk_obj_id": "module",
+    }
+    client = get_client_by_user(request.user.username)
+    result = client.cc.search_object_attribute(kwargs)
+    if not result["result"]:
+        return JsonResponse({"result": False, "data": "调用cc接口失败，message={}".format(result["message"])})
+    data = result["data"]
+    module_attribute = []
+    for module_item in data:
+        if module_item["editable"]:
+            module_attribute.append(module_item)
+
+    return JsonResponse({"result": True, "data": module_attribute})
+
+
+def cc_input_host_property(request, biz_cc_id):
+    """
+    获取CMDB主机对应的属性名称和code
+    """
+    client = get_client_by_user(request.user.username)
+
+    kwargs = {"bk_obj_id": "host", "bk_biz_id": int(biz_cc_id)}
+
+    cc_result = client.cc.search_object_attribute(kwargs)
+
+    if not cc_result["result"]:
+        return JsonResponse({"result": False, "message": cc_result["message"]})
+
+    obj_property = []
+    for item in cc_result["data"]:
+        if item["editable"]:
+            prop_dict = {"bk_property_id": item["bk_property_id"], "bk_property_name": item["bk_property_name"]}
+            obj_property.append(prop_dict)
+
+    return JsonResponse({"result": True, "data": obj_property})
+
+
+def cc_get_editable_set_attribute(request, biz_cc_id):
+    kwargs = {
+        "bk_biz_id": int(biz_cc_id),
+        "bk_obj_id": "set",
+    }
+    client = get_client_by_user(request.user.username)
+    result = client.cc.search_object_attribute(kwargs)
+    if not result["result"]:
+        return JsonResponse({"result": False, "data": "调用cc接口失败，message={}".format(result["message"])})
+    data = result["data"]
+    set_attribute = []
+    for set_item in data:
+        if set_item["editable"] and set_item["bk_property_id"] != "bk_set_name":
+            prop_dict = {"bk_property_id": set_item["bk_property_id"], "bk_property_name": set_item["bk_property_name"]}
+            set_attribute.append(prop_dict)
+
+    return JsonResponse({"result": True, "data": set_attribute})
+
+
+def cc_search_status_options(request, biz_cc_id):
+    client = get_client_by_user(request.user.username)
+    kwargs = {
+        "bk_biz_id": int(biz_cc_id),
+        "bk_obj_id": "set",
+    }
+    result = client.cc.search_object_attribute(kwargs)
+    options = []
+    for data in result["data"]:
+        if data["bk_property_id"] == "bk_service_status":
+            for option in data["option"]:
+                options.append({"text": option["name"], "value": option["id"]})
+    if not options:
+        message = handle_api_error("cc", "cc.search_object_attribute", kwargs, result)
+        logger.error(message)
+        result = {"result": False, "data": [], "message": message}
+        return JsonResponse(result)
+    return JsonResponse({"result": True, "data": options})
+
+
 cc_urlpatterns = [
+    url(r"^cc_get_editable_module_attribute/(?P<biz_cc_id>\d+)/$", cc_get_editable_module_attribute),
     url(r"^cc_search_object_attribute/(?P<obj_id>\w+)/(?P<biz_cc_id>\d+)/$", cc_search_object_attribute,),
     url(r"^cc_search_object_attribute_all/(?P<obj_id>\w+)/(?P<biz_cc_id>\d+)/$", cc_search_object_attribute_all,),
     url(r"^cc_search_create_object_attribute/(?P<obj_id>\w+)/(?P<biz_cc_id>\d+)/$", cc_search_create_object_attribute,),
@@ -347,6 +448,13 @@ cc_urlpatterns = [
     url(r"^cc_search_host/(?P<biz_cc_id>\d+)/$", cc_search_host),
     url(r"^cc_get_mainline_object_topo/(?P<biz_cc_id>\d+)/$", cc_get_mainline_object_topo,),
     url(r"^cc_get_business_list/$", cc_get_business),
+    url(r"^cc_search_dynamic_group/(?P<biz_cc_id>\d+)/$", cc_search_dynamic_group),
     # 查询集群模板
     url(r"^cc_list_set_template/(?P<biz_cc_id>\d+)/$", cc_list_set_template),
+    # 主机自定义属性表格
+    url(r"^cc_input_host_property/(?P<biz_cc_id>\d+)/$", cc_input_host_property),
+    # 查询Set服务状态
+    url(r"^cc_search_status_options/(?P<biz_cc_id>\d+)/$", cc_search_status_options),
+    # 获取可更改的set属性
+    url(r"^cc_get_set_attribute/(?P<biz_cc_id>\d+)/$", cc_get_editable_set_attribute),
 ]
